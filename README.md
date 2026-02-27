@@ -39,7 +39,7 @@ npm run tauri build -- --bundles nsis
 
 Output installer:
 
-- `src-tauri/target/release/bundle/nsis/tauri-app_0.1.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/nsis/Auto Make Net_0.1.1_x64-setup.exe`
 
 ## Core Tauri Commands
 
