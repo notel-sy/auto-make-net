@@ -25,18 +25,30 @@ pub fn validate_server_payload(payload: &ServerUpsertPayload) -> Result<(), Stri
     Ok(())
 }
 
-pub fn sync_saved_password(server_id: &str, payload: &ServerUpsertPayload) -> Result<(), String> {
+pub fn sync_saved_password(
+    server_id: &str,
+    payload: &ServerUpsertPayload,
+    allow_keep_existing: bool,
+) -> Result<(), String> {
     if payload.remember_password && matches!(payload.auth_type, AuthType::Password) {
-        let Some(password) = payload.password.as_deref() else {
-            return Err("rememberPassword=true requires password value".to_string());
-        };
-        if password.trim().is_empty() {
-            return Err("Password cannot be empty when rememberPassword=true".to_string());
+        if let Some(password) = payload.password.as_deref() {
+            if password.trim().is_empty() {
+                return Err("Password cannot be empty when rememberPassword=true".to_string());
+            }
+            return set_server_password(server_id, password);
         }
-        set_server_password(server_id, password)
-    } else {
-        delete_server_password(server_id)
+
+        if allow_keep_existing && get_server_password(server_id)?.is_some() {
+            return Ok(());
+        }
+
+        return Err(
+            "rememberPassword=true requires password value when no saved credential exists"
+                .to_string(),
+        );
     }
+
+    delete_server_password(server_id)
 }
 
 pub fn resolve_runtime_auth(
@@ -180,6 +192,6 @@ pub fn import_csv_record(state: &AppState, record: &StringRecord) -> Result<(), 
             .map_err(|_| "Database lock poisoned".to_string())?;
         let _ = db.insert_server(&server_id, &payload, now)?;
     }
-    sync_saved_password(&server_id, &payload)?;
+    sync_saved_password(&server_id, &payload, false)?;
     Ok(())
 }

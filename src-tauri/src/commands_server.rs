@@ -5,7 +5,7 @@ use crate::auth::{
     validate_server_payload,
 };
 use crate::models::{
-    CsvImportError, CsvImportResult, PreflightStatus, RuntimeAuth, ServerProfile,
+    AuthType, CsvImportError, CsvImportResult, PreflightStatus, RuntimeAuth, ServerProfile,
     ServerUpsertPayload, SshPreflightResponse, TrustHostPayload,
 };
 use crate::security::redact_text;
@@ -30,16 +30,23 @@ pub async fn server_create(
 
     let now = chrono::Utc::now();
     let server_id = uuid::Uuid::new_v4().to_string();
-    let server = {
+    sync_saved_password(&server_id, &payload, false)?;
+
+    let insert_result: Result<ServerProfile, String> = {
         let db = state
             .database
             .lock()
             .map_err(|_| "Database lock poisoned".to_string())?;
-        db.insert_server(&server_id, &payload, now)?
+        db.insert_server(&server_id, &payload, now)
     };
 
-    sync_saved_password(&server.id, &payload)?;
-    Ok(server)
+    match insert_result {
+        Ok(server) => Ok(server),
+        Err(error) => {
+            let _ = crate::security::delete_server_password(&server_id);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -50,6 +57,12 @@ pub async fn server_update(
 ) -> Result<ServerProfile, String> {
     validate_server_payload(&payload)?;
 
+    let should_sync_before_update =
+        payload.remember_password && matches!(payload.auth_type, AuthType::Password);
+    if should_sync_before_update {
+        sync_saved_password(&server_id, &payload, true)?;
+    }
+
     let now = chrono::Utc::now();
     let server = {
         let db = state
@@ -59,7 +72,9 @@ pub async fn server_update(
         db.update_server(&server_id, &payload, now)?
     };
 
-    sync_saved_password(&server_id, &payload)?;
+    if !should_sync_before_update {
+        sync_saved_password(&server_id, &payload, true)?;
+    }
     Ok(server)
 }
 

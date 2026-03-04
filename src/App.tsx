@@ -197,6 +197,27 @@ function App() {
     }));
   }
 
+  function normalizeRuntimeAuth(auth?: RuntimeAuth): RuntimeAuth | undefined {
+    if (!auth) {
+      return undefined;
+    }
+
+    const normalized: RuntimeAuth = {};
+    if (auth.password && auth.password.trim()) {
+      normalized.password = auth.password;
+    }
+    if (auth.privateKeyPath && auth.privateKeyPath.trim()) {
+      normalized.privateKeyPath = auth.privateKeyPath;
+    }
+    if (auth.privateKeyPassphrase && auth.privateKeyPassphrase.trim()) {
+      normalized.privateKeyPassphrase = auth.privateKeyPassphrase;
+    }
+    if (auth.sudoPassword && auth.sudoPassword.trim()) {
+      normalized.sudoPassword = auth.sudoPassword;
+    }
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+  }
+
   function toggleServer(serverId: string) {
     setSelectedServerIds((prev) =>
       prev.includes(serverId) ? prev.filter((id) => id !== serverId) : [...prev, serverId],
@@ -250,6 +271,7 @@ function App() {
   }
 
   function resolvePayload(): ServerUpsertPayload {
+    const rawPassword = form.password;
     return {
       name: form.name.trim(),
       host: form.host.trim(),
@@ -257,7 +279,7 @@ function App() {
       username: form.username.trim(),
       authType: form.authType,
       rememberPassword: form.rememberPassword,
-      password: form.password.trim() || undefined,
+      password: rawPassword.trim().length > 0 ? rawPassword : undefined,
     };
   }
 
@@ -266,12 +288,26 @@ function App() {
     setLoading(true);
     try {
       const payload = resolvePayload();
+      const isPasswordAuth = form.authType === "password";
+      const currentInputPassword = form.password;
+      const hasCurrentInputPassword = currentInputPassword.trim().length > 0;
+      let savedServerId = form.id;
       if (form.id) {
-        await invoke("server_update", { serverId: form.id, payload });
+        const updated = await invoke<ServerProfile>("server_update", { serverId: form.id, payload });
+        savedServerId = updated.id;
         setStatusText(`已更新服务器：${payload.name}`);
       } else {
-        await invoke("server_create", { payload });
+        const created = await invoke<ServerProfile>("server_create", { payload });
+        savedServerId = created.id;
         setStatusText(`已新增服务器：${payload.name}`);
+      }
+      if (
+        savedServerId &&
+        isPasswordAuth &&
+        !payload.rememberPassword &&
+        hasCurrentInputPassword
+      ) {
+        updateRuntimeAuth(savedServerId, { password: currentInputPassword });
       }
       closeFormModal();
       await refreshServers();
@@ -467,7 +503,7 @@ function App() {
   async function onPreflight(server: ServerProfile) {
     setLoading(true);
     try {
-      const runtimeAuth = runtimeAuths[server.id];
+      const runtimeAuth = normalizeRuntimeAuth(runtimeAuths[server.id]);
       const result = await invoke<SshPreflightResponse>("ssh_preflight", {
         serverId: server.id,
         runtimeAuth,
@@ -582,6 +618,14 @@ function App() {
       return;
     }
 
+    const normalizedRuntimeAuths = targetServerIds.reduce<Record<string, RuntimeAuth>>((acc, serverId) => {
+      const normalized = normalizeRuntimeAuth(runtimeAuths[serverId]);
+      if (normalized) {
+        acc[serverId] = normalized;
+      }
+      return acc;
+    }, {});
+
     const effectiveParallel = resolveParallelLimit();
     setLoading(true);
     try {
@@ -589,7 +633,7 @@ function App() {
       const accepted = await invoke<TaskRunAccepted>("task_run", {
         serverIds: targetServerIds,
         mode,
-        runtimeAuths,
+        runtimeAuths: normalizedRuntimeAuths,
         parallelLimit: effectiveParallel,
       });
       setActiveTaskId(accepted.taskId);
@@ -842,7 +886,7 @@ function App() {
               {server.authType === "password" ? (
                 <input
                   type="password"
-                  placeholder="运行时密码（如未勾选保存密码）"
+                  placeholder="运行时密码（未保存密码时必填）"
                   value={auth.password ?? ""}
                   onChange={(e) => updateRuntimeAuth(server.id, { password: e.target.value })}
                 />
@@ -989,7 +1033,9 @@ function App() {
               <input
                 type="password"
                 value={form.password}
-                placeholder={form.id ? "新密码（可留空）" : "密码"}
+                placeholder={form.rememberPassword
+                  ? (form.id ? "新密码（留空则保留已保存密码）" : "保存到系统凭据的密码")
+                  : "临时密码（仅填充本次运行时，不会保存）"}
                 onChange={(e) => setForm((v) => ({ ...v, password: e.target.value }))}
               />
               <div className="inline-actions">
