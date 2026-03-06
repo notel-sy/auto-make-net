@@ -28,6 +28,7 @@ chrono = { version = "0.4", features = ["serde"] }
 csv = "1.4"
 keyring = "3.6"
 regex = "1.12"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
 ssh2 = "0.9"

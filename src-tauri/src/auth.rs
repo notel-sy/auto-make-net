@@ -87,6 +87,12 @@ pub fn resolve_runtime_auth(
     match server.auth_type {
         AuthType::Password => {
             if password.is_none() {
+                if server.remember_password {
+                    return Err(format!(
+                        "服务器 `{}` 已勾选保存密码，但系统安全凭据中未找到已保存的连接密码。请在“编辑服务器”中重新输入密码并保存，或在运行时认证中临时填写。",
+                        server.name
+                    ));
+                }
                 return Err(format!(
                     "Server `{}` requires password at runtime or saved credential",
                     server.name
@@ -185,13 +191,21 @@ pub fn import_csv_record(state: &AppState, record: &StringRecord) -> Result<(), 
 
     let now = Utc::now();
     let server_id = Uuid::new_v4().to_string();
-    {
+    sync_saved_password(&server_id, &payload, false)?;
+
+    let insert_result = {
         let db = state
             .database
             .lock()
             .map_err(|_| "Database lock poisoned".to_string())?;
-        let _ = db.insert_server(&server_id, &payload, now)?;
+        db.insert_server(&server_id, &payload, now)
+    };
+
+    match insert_result {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let _ = delete_server_password(&server_id);
+            Err(error)
+        }
     }
-    sync_saved_password(&server_id, &payload, false)?;
-    Ok(())
 }

@@ -8,6 +8,7 @@ export interface ServerProfile {
   username: string;
   authType: AuthType;
   rememberPassword: boolean;
+  hasSavedPassword: boolean;
   createdAt: string;
   updatedAt: string;
 }

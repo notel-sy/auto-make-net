@@ -36,6 +36,7 @@ type FormState = {
   username: string;
   authType: "password" | "key";
   rememberPassword: boolean;
+  hasSavedPassword: boolean;
   password: string;
 };
 
@@ -46,6 +47,7 @@ const emptyForm = (): FormState => ({
   username: "root",
   authType: "password",
   rememberPassword: true,
+  hasSavedPassword: false,
   password: "",
 });
 
@@ -255,6 +257,7 @@ function App() {
       username: server.username,
       authType: server.authType,
       rememberPassword: server.rememberPassword,
+      hasSavedPassword: server.hasSavedPassword,
       password: "",
     });
     setFormModalOpen(true);
@@ -304,7 +307,6 @@ function App() {
       if (
         savedServerId &&
         isPasswordAuth &&
-        !payload.rememberPassword &&
         hasCurrentInputPassword
       ) {
         updateRuntimeAuth(savedServerId, { password: currentInputPassword });
@@ -779,6 +781,43 @@ function App() {
     return runtimeAuths[serverId] ?? {};
   }
 
+  function passwordStorageHint(server: ServerProfile) {
+    if (server.authType !== "password") {
+      return "私钥登录";
+    }
+    if (!server.rememberPassword) {
+      return "密码登录（仅运行时输入）";
+    }
+    return server.hasSavedPassword
+      ? "密码登录（已保存到系统凭据）"
+      : "密码登录（系统凭据缺失，请重新输入后保存）";
+  }
+
+  function runtimePasswordPlaceholder(server: ServerProfile) {
+    if (server.authType !== "password") {
+      return "";
+    }
+    if (server.rememberPassword && server.hasSavedPassword) {
+      return "运行时密码（可选，留空使用已保存密码）";
+    }
+    if (server.rememberPassword) {
+      return "运行时密码（系统凭据缺失；请到编辑服务器重新输入并保存）";
+    }
+    return "运行时密码（未保存密码时必填）";
+  }
+
+  function formPasswordPlaceholder() {
+    if (!form.rememberPassword) {
+      return "临时密码（仅填充本次运行时，不会保存）";
+    }
+    if (!form.id) {
+      return "保存到系统凭据的密码";
+    }
+    return form.hasSavedPassword
+      ? "新密码（留空则保留已保存密码）"
+      : "当前未检测到已保存密码，请输入并重新保存";
+  }
+
   return (
     <main className="layout">
       <header className="hero">
@@ -860,7 +899,7 @@ function App() {
                 <td>{server.name}</td>
                 <td>{server.host}:{server.port}</td>
                 <td>{server.username}</td>
-                <td>{server.authType === "password" ? "密码" : "私钥"}</td>
+                <td>{passwordStorageHint(server)}</td>
                 <td>{renderPreflightCell(server)}</td>
                 <td>
                   <button className="btn tiny" onClick={() => startEdit(server)}>编辑</button>
@@ -886,7 +925,7 @@ function App() {
               {server.authType === "password" ? (
                 <input
                   type="password"
-                  placeholder="运行时密码（未保存密码时必填）"
+                  placeholder={runtimePasswordPlaceholder(server)}
                   value={auth.password ?? ""}
                   onChange={(e) => updateRuntimeAuth(server.id, { password: e.target.value })}
                 />
@@ -1033,9 +1072,7 @@ function App() {
               <input
                 type="password"
                 value={form.password}
-                placeholder={form.rememberPassword
-                  ? (form.id ? "新密码（留空则保留已保存密码）" : "保存到系统凭据的密码")
-                  : "临时密码（仅填充本次运行时，不会保存）"}
+                placeholder={formPasswordPlaceholder()}
                 onChange={(e) => setForm((v) => ({ ...v, password: e.target.value }))}
               />
               <div className="inline-actions">

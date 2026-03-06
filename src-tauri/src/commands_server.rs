@@ -8,9 +8,16 @@ use crate::models::{
     AuthType, CsvImportError, CsvImportResult, PreflightStatus, RuntimeAuth, ServerProfile,
     ServerUpsertPayload, SshPreflightResponse, TrustHostPayload,
 };
-use crate::security::redact_text;
+use crate::security::{has_server_password, redact_text};
 use crate::ssh_client::{connect_ssh, run_preflight_checks};
 use crate::state::AppState;
+
+fn hydrate_saved_password_flag(mut server: ServerProfile) -> Result<ServerProfile, String> {
+    server.has_saved_password = matches!(server.auth_type, AuthType::Password)
+        && server.remember_password
+        && has_server_password(&server.id)?;
+    Ok(server)
+}
 
 #[tauri::command]
 pub async fn server_list(state: State<'_, AppState>) -> Result<Vec<ServerProfile>, String> {
@@ -18,7 +25,10 @@ pub async fn server_list(state: State<'_, AppState>) -> Result<Vec<ServerProfile
         .database
         .lock()
         .map_err(|_| "Database lock poisoned".to_string())?;
-    db.list_servers()
+    db.list_servers()?
+        .into_iter()
+        .map(hydrate_saved_password_flag)
+        .collect()
 }
 
 #[tauri::command]
@@ -41,7 +51,7 @@ pub async fn server_create(
     };
 
     match insert_result {
-        Ok(server) => Ok(server),
+        Ok(server) => hydrate_saved_password_flag(server),
         Err(error) => {
             let _ = crate::security::delete_server_password(&server_id);
             Err(error)
@@ -75,7 +85,7 @@ pub async fn server_update(
     if !should_sync_before_update {
         sync_saved_password(&server_id, &payload, true)?;
     }
-    Ok(server)
+    hydrate_saved_password_flag(server)
 }
 
 #[tauri::command]

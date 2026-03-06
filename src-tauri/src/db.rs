@@ -408,6 +408,7 @@ impl Database {
                 )
             })?,
             remember_password: row.get::<_, i64>(6)? != 0,
+            has_saved_password: false,
             created_at: parse_rfc3339_to_utc(&created_at).map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
                     7,

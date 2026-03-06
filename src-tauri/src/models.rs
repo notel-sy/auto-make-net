@@ -20,6 +20,7 @@ pub struct ServerProfile {
     pub username: String,
     pub auth_type: AuthType,
     pub remember_password: bool,
+    pub has_saved_password: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
